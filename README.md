@@ -1,20 +1,20 @@
-# AI Assistant (Mobile-Optimized)
+# RetrAI Po 🚀
+
+Mobile AI Assistant with streaming responses
 
 ## Features
-- Chat (Groq / OpenRouter)
-- Streaming responses ⚡
-- Image upload (Gemini)
-- PWA install
+- ⚡ ChatGPT-style streaming AI
+- 📱 Mobile-first UI
+- 🧠 Multi-model (Groq / OpenRouter)
+- 🌐 PWA install support
 
-## Deploy (1-click)
+## Deploy
 
-1. Push to GitHub
-2. Go to Vercel
-3. Import repo
-4. Add env vars:
+1. Upload to GitHub (`retrai_po`)
+2. Import to Vercel
+3. Add ENV variables:
 
 GROQ_API_KEY=
 OPENROUTER_API_KEY=
-GEMINI_API_KEY=
 
 Done 🚀
