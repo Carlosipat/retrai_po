@@ -1,0 +1,14 @@
+body {
+  margin: 0;
+  font-family: DM Sans, sans-serif;
+  background: #0a0a0a;
+  color: #fff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+textarea {
+  outline: none;
+}
