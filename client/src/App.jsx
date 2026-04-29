@@ -1,534 +1,465 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 
-const PLUGINS = [
-  { id: "none", icon: "✦", label: "Chat" },
-  { id: "websearch", icon: "⊕", label: "Web Search" },
-  { id: "document", icon: "◈", label: "Documents" },
-  { id: "youtube", icon: "▷", label: "YouTube" },
-  { id: "website", icon: "◎", label: "Website" },
-];
+const SYSTEM_PROMPT = `You are RetrAI Po, a powerful AI assistant. You can:
+- Have unlimited conversations
+- Read and analyze uploaded files (text, code, PDFs described as images)
+- Look at images and describe/analyze them
+- Generate, debug, and explain code in any language
+- Help with any task: writing, math, research, creative work
+- Generate images (describe what you'd create in vivid detail since you can't render them, but offer to write prompts for image generators)
 
-const MODELS = [
-  { id: "groq", label: "Groq · Llama 3", badge: "Fast" },
-  { id: "openrouter", label: "OpenRouter · GPT-4o", badge: "Smart" },
-];
+Be helpful, thorough, and friendly. Format code with proper markdown code blocks. Use markdown for structure when helpful.`;
+
+const MODEL = "claude-sonnet-4-20250514";
 
 function TypingDots() {
   return (
-    <div style={{ display: "flex", gap: 5, alignItems: "center", padding: "10px 0" }}>
-      {[0, 1, 2].map((i) => (
-        <div
-          key={i}
-          style={{
-            width: 7,
-            height: 7,
-            borderRadius: "50%",
-            background: "#c8f135",
-            animation: "pulse 1.2s ease-in-out infinite",
-            animationDelay: `${i * 0.2}s`,
-          }}
-        />
+    <div style={{ display: "flex", gap: 5, alignItems: "center", padding: "8px 0" }}>
+      {[0, 1, 2].map(i => (
+        <div key={i} style={{
+          width: 8, height: 8, borderRadius: "50%",
+          background: "#c8f135",
+          animation: "bounce 1.2s infinite",
+          animationDelay: `${i * 0.2}s`
+        }} />
       ))}
     </div>
   );
+}
+
+function parseMarkdown(text) {
+  // Code blocks
+  text = text.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) =>
+    `<pre class="code-block"><div class="code-lang">${lang || "code"}</div><code>${escHtml(code.trim())}</code></pre>`
+  );
+  // Inline code
+  text = text.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
+  // Bold
+  text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // Italic
+  text = text.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // Headers
+  text = text.replace(/^### (.+)$/gm, '<h3 class="md-h3">$1</h3>');
+  text = text.replace(/^## (.+)$/gm, '<h2 class="md-h2">$1</h2>');
+  text = text.replace(/^# (.+)$/gm, '<h1 class="md-h1">$1</h1>');
+  // Bullet lists
+  text = text.replace(/^[•\-] (.+)$/gm, '<li>$1</li>');
+  text = text.replace(/(<li>[\s\S]*?<\/li>)+/g, m => `<ul class="md-ul">${m}</ul>`);
+  // Numbered lists
+  text = text.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+  // Line breaks
+  text = text.replace(/\n\n/g, '<br/><br/>');
+  text = text.replace(/\n/g, '<br/>');
+  return text;
+}
+
+function escHtml(t) {
+  return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 function Message({ msg }) {
   const isUser = msg.role === "user";
   return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: isUser ? "flex-end" : "flex-start",
-        marginBottom: 12,
-        animation: "slideUp 0.25s ease",
-      }}
-    >
+    <div style={{
+      display: "flex",
+      justifyContent: isUser ? "flex-end" : "flex-start",
+      marginBottom: 18,
+      gap: 10,
+      alignItems: "flex-start"
+    }}>
       {!isUser && (
-        <div
-          style={{
-            width: 30,
-            height: 30,
-            borderRadius: "50%",
-            background: "linear-gradient(135deg, #c8f135, #7fff00)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 14,
-            marginRight: 8,
-            flexShrink: 0,
-            marginTop: 2,
-          }}
-        >
-          ✦
-        </div>
+        <div style={{
+          width: 34, height: 34, borderRadius: "50%",
+          background: "linear-gradient(135deg, #c8f135, #7ecf00)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 16, flexShrink: 0, marginTop: 2, fontWeight: "bold", color: "#0a0a0a"
+        }}>R</div>
       )}
-      <div
-        style={{
-          maxWidth: "78%",
-          padding: isUser ? "10px 14px" : "12px 14px",
-          borderRadius: isUser ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
-          background: isUser
-            ? "linear-gradient(135deg, #c8f135 0%, #9ddb00 100%)"
-            : "rgba(255,255,255,0.06)",
-          color: isUser ? "#0a0a0a" : "#e8e8e8",
-          fontSize: 14,
-          lineHeight: 1.55,
-          fontFamily: "'DM Sans', sans-serif",
-          border: isUser ? "none" : "1px solid rgba(255,255,255,0.1)",
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-word",
-        }}
-      >
-        {msg.content}
-        {msg.source && (
-          <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.15)", fontSize: 11, opacity: 0.7 }}>
-            📚 {msg.source}
+      <div style={{
+        maxWidth: "80%",
+        background: isUser
+          ? "linear-gradient(135deg, #c8f135 0%, #a8d100 100%)"
+          : "rgba(255,255,255,0.06)",
+        color: isUser ? "#0a0a0a" : "#e8e8e8",
+        borderRadius: isUser ? "18px 18px 4px 18px" : "4px 18px 18px 18px",
+        padding: "12px 16px",
+        fontSize: 14.5,
+        lineHeight: 1.65,
+        border: isUser ? "none" : "1px solid rgba(255,255,255,0.08)",
+        boxShadow: isUser ? "0 2px 12px rgba(200,241,53,0.2)" : "none"
+      }}>
+        {/* Image preview if user sent image */}
+        {msg.imagePreview && (
+          <img src={msg.imagePreview} alt="uploaded"
+            style={{ maxWidth: "100%", maxHeight: 200, borderRadius: 8, marginBottom: 8, display: "block" }} />
+        )}
+        {/* File info */}
+        {msg.fileName && !msg.imagePreview && (
+          <div style={{
+            background: "rgba(0,0,0,0.2)", borderRadius: 6, padding: "4px 8px",
+            fontSize: 12, marginBottom: 6, display: "flex", alignItems: "center", gap: 6
+          }}>
+            📄 {msg.fileName}
           </div>
         )}
+        {isUser ? (
+          <span>{msg.displayText || msg.text}</span>
+        ) : (
+          <div dangerouslySetInnerHTML={{ __html: parseMarkdown(msg.text) }} />
+        )}
       </div>
-    </div>
-  );
-}
-
-function PluginBar({ active, onChange }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        gap: 6,
-        overflowX: "auto",
-        padding: "0 16px 12px",
-        scrollbarWidth: "none",
-      }}
-    >
-      {PLUGINS.map((p) => (
-        <button
-          key={p.id}
-          onClick={() => onChange(p.id)}
-          style={{
-            flexShrink: 0,
-            padding: "6px 12px",
-            borderRadius: 20,
-            border: active === p.id ? "1.5px solid #c8f135" : "1.5px solid rgba(255,255,255,0.12)",
-            background: active === p.id ? "rgba(200,241,53,0.12)" : "rgba(255,255,255,0.04)",
-            color: active === p.id ? "#c8f135" : "#888",
-            fontSize: 12,
-            fontFamily: "'DM Sans', sans-serif",
-            fontWeight: 500,
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: 5,
-            transition: "all 0.2s",
-            whiteSpace: "nowrap",
-          }}
-        >
-          <span>{p.icon}</span>
-          <span>{p.label}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function PluginInput({ plugin, onSubmit }) {
-  const [url, setUrl] = useState("");
-  const [ytUrl, setYtUrl] = useState("");
-
-  if (plugin === "none") return null;
-
-  const inputStyle = {
-    width: "100%",
-    padding: "10px 12px",
-    borderRadius: 10,
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: "rgba(255,255,255,0.05)",
-    color: "#e8e8e8",
-    fontSize: 13,
-    fontFamily: "'DM Sans', sans-serif",
-    outline: "none",
-    boxSizing: "border-box",
-    marginBottom: 8,
-  };
-
-  const btnStyle = {
-    width: "100%",
-    padding: "10px",
-    borderRadius: 10,
-    border: "none",
-    background: "linear-gradient(135deg, #c8f135, #9ddb00)",
-    color: "#0a0a0a",
-    fontWeight: 700,
-    fontSize: 13,
-    fontFamily: "'DM Sans', sans-serif",
-    cursor: "pointer",
-  };
-
-  if (plugin === "websearch") {
-    return (
-      <div style={{ padding: "0 16px 12px" }}>
-        <div style={{ fontSize: 11, color: "#888", marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Web Search Active</div>
-        <div style={{ padding: 10, borderRadius: 10, background: "rgba(200,241,53,0.08)", border: "1px solid rgba(200,241,53,0.2)", fontSize: 12, color: "#c8f135" }}>
-          ⊕ DuckDuckGo search will enhance your queries automatically
-        </div>
-      </div>
-    );
-  }
-
-  if (plugin === "document") {
-    return (
-      <div style={{ padding: "0 16px 12px" }}>
-        <div style={{ fontSize: 11, color: "#888", marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Upload Document</div>
-        <label style={{ display: "block", padding: "20px", borderRadius: 10, border: "1.5px dashed rgba(200,241,53,0.3)", textAlign: "center", cursor: "pointer", color: "#888", fontSize: 13 }}>
-          <input type="file" accept=".txt,.pdf,.docx" style={{ display: "none" }} onChange={(e) => {
-            const f = e.target.files[0];
-            if (f) onSubmit(`[Document loaded: ${f.name}] Ask me anything about this document.`);
-          }} />
-          ◈ Tap to upload PDF, TXT, or DOCX
-        </label>
-      </div>
-    );
-  }
-
-  if (plugin === "youtube") {
-    return (
-      <div style={{ padding: "0 16px 12px" }}>
-        <div style={{ fontSize: 11, color: "#888", marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>YouTube URL</div>
-        <input style={inputStyle} placeholder="https://youtube.com/watch?v=..." value={ytUrl} onChange={e => setYtUrl(e.target.value)} />
-        <button style={btnStyle} onClick={() => { if (ytUrl) { onSubmit(`Analyze this YouTube video: ${ytUrl}`); setYtUrl(""); } }}>
-          ▷ Load Video
-        </button>
-      </div>
-    );
-  }
-
-  if (plugin === "website") {
-    return (
-      <div style={{ padding: "0 16px 12px" }}>
-        <div style={{ fontSize: 11, color: "#888", marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Website URL</div>
-        <input style={inputStyle} placeholder="https://example.com" value={url} onChange={e => setUrl(e.target.value)} />
-        <button style={btnStyle} onClick={() => { if (url) { onSubmit(`Analyze this website: ${url}`); setUrl(""); } }}>
-          ◎ Load Website
-        </button>
-      </div>
-    );
-  }
-
-  return null;
-}
-
-function ModelPicker({ active, onChange }) {
-  const [open, setOpen] = useState(false);
-  const current = MODELS.find(m => m.id === active);
-  return (
-    <div style={{ position: "relative" }}>
-      <button
-        onClick={() => setOpen(!open)}
-        style={{
-          padding: "5px 10px",
-          borderRadius: 20,
-          border: "1px solid rgba(255,255,255,0.12)",
-          background: "rgba(255,255,255,0.05)",
-          color: "#aaa",
-          fontSize: 11,
-          fontFamily: "'DM Sans', sans-serif",
-          cursor: "pointer",
-          display: "flex",
-          alignItems: "center",
-          gap: 5,
-        }}
-      >
-        <span style={{ color: "#c8f135" }}>●</span>
-        {current?.label}
-        <span style={{ opacity: 0.5 }}>▾</span>
-      </button>
-      {open && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: "110%",
-            left: 0,
-            background: "#1a1a1a",
-            border: "1px solid rgba(255,255,255,0.12)",
-            borderRadius: 12,
-            overflow: "hidden",
-            minWidth: 180,
-            boxShadow: "0 -8px 32px rgba(0,0,0,0.5)",
-            zIndex: 100,
-          }}
-        >
-          {MODELS.map(m => (
-            <div
-              key={m.id}
-              onClick={() => { onChange(m.id); setOpen(false); }}
-              style={{
-                padding: "10px 14px",
-                cursor: "pointer",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                background: active === m.id ? "rgba(200,241,53,0.08)" : "transparent",
-                color: active === m.id ? "#c8f135" : "#ccc",
-                fontSize: 13,
-                fontFamily: "'DM Sans', sans-serif",
-              }}
-            >
-              <span>{m.label}</span>
-              <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 8, background: "rgba(255,255,255,0.08)", color: "#888" }}>{m.badge}</span>
-            </div>
-          ))}
-        </div>
+      {isUser && (
+        <div style={{
+          width: 34, height: 34, borderRadius: "50%",
+          background: "rgba(255,255,255,0.1)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 16, flexShrink: 0, marginTop: 2
+        }}>👤</div>
       )}
     </div>
   );
 }
 
 export default function App() {
-  const [messages, setMessages] = useState([
-    { role: "assistant", content: "Hey! I'm RetrAI Po ✦\n\nChoose a plugin above or just start chatting. What can I help you with?" }
-  ]);
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [plugin, setPlugin] = useState("none");
-  const [model, setModel] = useState("groq");
-  const [showSettings, setShowSettings] = useState(false);
-  const bottomRef = useRef(null);
+  const [error, setError] = useState("");
+  const [pendingFile, setPendingFile] = useState(null); // {type, data, name, preview}
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [conversations, setConversations] = useState([{ id: 1, title: "New Chat", messages: [] }]);
+  const [activeConvId, setActiveConvId] = useState(1);
+  const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  const adjustTextarea = () => {
-    const el = textareaRef.current;
-    if (el) {
-      el.style.height = "auto";
-      el.style.height = Math.min(el.scrollHeight, 120) + "px";
-    }
-  };
+  const handleFileUpload = useCallback((e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const isImage = file.type.startsWith("image/");
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const base64 = ev.target.result.split(",")[1];
+      if (isImage) {
+        setPendingFile({
+          type: "image",
+          mediaType: file.type,
+          data: base64,
+          name: file.name,
+          preview: ev.target.result
+        });
+      } else {
+        // Text/code/PDF as text
+        const textReader = new FileReader();
+        textReader.onload = (te) => {
+          setPendingFile({
+            type: "text",
+            content: te.target.result,
+            name: file.name,
+            preview: null
+          });
+        };
+        textReader.readAsText(file);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  }, []);
 
-  const sendMessage = async (text) => {
-    const userText = text || input.trim();
-    if (!userText || loading) return;
+  const sendMessage = useCallback(async () => {
+    const text = input.trim();
+    if (!text && !pendingFile) return;
+    if (loading) return;
 
-    setInput("");
-    if (textareaRef.current) textareaRef.current.style.height = "44px";
+    setError("");
 
-    const newMessages = [...messages, { role: "user", content: userText }];
+    // Build display message
+    const userDisplayMsg = {
+      role: "user",
+      text: text || (pendingFile ? `[Sent file: ${pendingFile.name}]` : ""),
+      displayText: text,
+      fileName: pendingFile?.name,
+      imagePreview: pendingFile?.preview,
+      id: Date.now()
+    };
+
+    const newMessages = [...messages, userDisplayMsg];
     setMessages(newMessages);
+    setInput("");
+    setPendingFile(null);
     setLoading(true);
 
+    // Build API messages
+    const apiMessages = newMessages.map(m => {
+      if (m.role === "assistant") {
+        return { role: "assistant", content: m.text };
+      }
+      // User message - may have image
+      if (m.imagePreview && m._imageData) {
+        return {
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: m._imageMediaType, data: m._imageData } },
+            { type: "text", text: m.text || "What do you see in this image?" }
+          ]
+        };
+      }
+      if (m._fileContent) {
+        return {
+          role: "user",
+          content: `File: ${m.fileName}\n\n\`\`\`\n${m._fileContent}\n\`\`\`\n\n${m.text || "Please analyze this file."}`
+        };
+      }
+      return { role: "user", content: m.text };
+    });
+
+    // Fix last user message to include file data
+    const lastIdx = apiMessages.length - 1;
+    if (pendingFile === null && userDisplayMsg.imagePreview) {
+      // already handled above via _imageData
+    }
+
+    // Actually attach file to last message in apiMessages
+    const lastUserMsg = newMessages[newMessages.length - 1];
+    if (pendingFile) {
+      if (pendingFile.type === "image") {
+        apiMessages[lastIdx] = {
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: pendingFile.mediaType, data: pendingFile.data } },
+            { type: "text", text: text || "Describe and analyze this image in detail." }
+          ]
+        };
+      } else {
+        apiMessages[lastIdx] = {
+          role: "user",
+          content: `File: ${pendingFile.name}\n\n\`\`\`\n${pendingFile.content?.slice(0, 15000)}\n\`\`\`\n\n${text || "Please read and analyze this file."}`
+        };
+      }
+    }
+
     try {
-      // Build system-flavored prefix based on active plugin
-      const systemHint =
-        plugin === "websearch" ? " The user has web search active — acknowledge this when relevant." :
-        plugin === "document" ? " The user may reference uploaded documents." :
-        plugin === "youtube" ? " The user may ask about YouTube video content." :
-        plugin === "website" ? " The user may ask about website content." : "";
-
-      // Inject a system message as a leading assistant turn isn't ideal;
-      // instead we prepend a system role message supported by the backend.
-      const apiMessages = [
-        {
-          role: "system",
-          content: `You are RetrAI Po, a helpful and concise AI assistant.${systemHint} Format responses well for mobile reading.`
-        },
-        ...newMessages.map(m => ({ role: m.role, content: m.content }))
-      ];
-
-      // Streaming fetch to /api/chat
-      const response = await fetch("/api/chat", {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: apiMessages, model }),
+        body: JSON.stringify({
+          model: MODEL,
+          max_tokens: 4096,
+          system: SYSTEM_PROMPT,
+          messages: apiMessages
+        })
       });
 
       if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err?.error?.message || `API error ${response.status}`);
       }
 
-      // Stream the response token by token
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let reply = "";
+      const data = await response.json();
+      const assistantText = data.content?.find(b => b.type === "text")?.text || "";
 
-      // Add placeholder assistant message
-      setMessages([...newMessages, { role: "assistant", content: "" }]);
+      const assistantMsg = {
+        role: "assistant",
+        text: assistantText,
+        id: Date.now() + 1
+      };
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        reply += decoder.decode(value, { stream: true });
-        setMessages([...newMessages, { role: "assistant", content: reply }]);
-      }
+      const finalMessages = [...newMessages, assistantMsg];
+      setMessages(finalMessages);
 
-      if (!reply) {
-        setMessages([...newMessages, { role: "assistant", content: "I didn't get a response. Please try again." }]);
-      }
-    } catch (e) {
-      setMessages([...newMessages, { role: "assistant", content: `Connection error: ${e.message}\n\nMake sure your API keys are set in Vercel environment variables.` }]);
+      // Update conversation title from first message
+      setConversations(prev => prev.map(c =>
+        c.id === activeConvId
+          ? { ...c, messages: finalMessages, title: text?.slice(0, 35) || c.title }
+          : c
+      ));
+    } catch (err) {
+      setError(err.message || "Something went wrong. Try again.");
+    } finally {
+      setLoading(false);
     }
+  }, [input, messages, loading, pendingFile, activeConvId]);
 
-    setLoading(false);
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  };
+
+  const newChat = () => {
+    const id = Date.now();
+    setConversations(prev => [{ id, title: "New Chat", messages: [] }, ...prev]);
+    setActiveConvId(id);
+    setMessages([]);
+    setInput("");
+    setPendingFile(null);
+    setSidebarOpen(false);
+  };
+
+  const loadConversation = (conv) => {
+    setActiveConvId(conv.id);
+    setMessages(conv.messages);
+    setSidebarOpen(false);
   };
 
   const clearChat = () => {
-    setMessages([{ role: "assistant", content: "Chat cleared ✦\n\nHow can I help you?" }]);
+    setMessages([]);
+    setConversations(prev => prev.map(c => c.id === activeConvId ? { ...c, messages: [], title: "New Chat" } : c));
   };
 
   return (
-    <>
+    <div style={{ height: "100vh", display: "flex", background: "#0a0a0a", fontFamily: "'DM Sans', sans-serif", overflow: "hidden" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
-        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        body { background: #0a0a0a; overscroll-behavior: none; }
-        ::-webkit-scrollbar { display: none; }
-        @keyframes pulse { 0%,100% { opacity: 0.3; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1); } }
-        @keyframes slideUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        textarea { resize: none; }
-        textarea:focus { outline: none; }
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Space+Mono:wght@400;700&display=swap');
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(200,241,53,0.3); border-radius: 4px; }
+        @keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-8px)} }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes slideIn { from{transform:translateX(-100%)} to{transform:translateX(0)} }
+        @keyframes pulse { 0%,100%{opacity:0.6} 50%{opacity:1} }
+        .msg-appear { animation: fadeIn 0.3s ease; }
+        .code-block { background:#111; border:1px solid rgba(200,241,53,0.2); border-radius:10px; overflow:auto; margin:10px 0; font-family:'Space Mono',monospace; font-size:12.5px; line-height:1.6; }
+        .code-block code { display:block; padding:12px 16px; color:#e8e8e8; white-space:pre; }
+        .code-lang { padding:4px 12px; background:rgba(200,241,53,0.1); color:#c8f135; font-size:11px; font-family:'Space Mono',monospace; border-bottom:1px solid rgba(200,241,53,0.15); }
+        .inline-code { background:rgba(200,241,53,0.1); color:#c8f135; padding:2px 6px; border-radius:4px; font-family:'Space Mono',monospace; font-size:13px; }
+        .md-h1,.md-h2,.md-h3 { color:#c8f135; margin:12px 0 6px; }
+        .md-h1{font-size:20px} .md-h2{font-size:17px} .md-h3{font-size:15px}
+        .md-ul { padding-left:20px; margin:8px 0; }
+        .md-ul li { margin:4px 0; }
+        textarea { resize:none; font-family:'DM Sans',sans-serif; }
+        .sidebar-item:hover { background:rgba(255,255,255,0.06)!important; }
+        .send-btn:hover { background:rgba(200,241,53,0.85)!important; transform:scale(1.05); }
+        .send-btn:active { transform:scale(0.97); }
+        .icon-btn:hover { background:rgba(255,255,255,0.08)!important; }
+        .feature-chip { display:inline-flex; align-items:center; gap:5px; padding:6px 12px; background:rgba(200,241,53,0.08); border:1px solid rgba(200,241,53,0.2); border-radius:20px; font-size:12px; color:#c8f135; cursor:pointer; transition:all 0.2s; }
+        .feature-chip:hover { background:rgba(200,241,53,0.15); }
       `}</style>
 
+      {/* Sidebar */}
+      {sidebarOpen && (
+        <div onClick={() => setSidebarOpen(false)} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:40 }} />
+      )}
       <div style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100dvh",
-        maxWidth: 480,
-        margin: "0 auto",
-        background: "#0a0a0a",
-        fontFamily: "'DM Sans', sans-serif",
-        position: "relative",
-        overflow: "hidden",
+        position: "fixed", top: 0, left: 0, bottom: 0,
+        width: 260,
+        background: "#111",
+        borderRight: "1px solid rgba(255,255,255,0.07)",
+        zIndex: 50,
+        transform: sidebarOpen ? "translateX(0)" : "translateX(-100%)",
+        transition: "transform 0.28s cubic-bezier(0.4,0,0.2,1)",
+        display: "flex", flexDirection: "column"
       }}>
-        {/* Header */}
-        <div style={{
-          padding: "14px 16px 12px",
-          borderBottom: "1px solid rgba(255,255,255,0.07)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          background: "rgba(10,10,10,0.95)",
-          backdropFilter: "blur(20px)",
-          position: "sticky",
-          top: 0,
-          zIndex: 10,
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{
-              width: 34,
-              height: 34,
-              borderRadius: "50%",
-              background: "linear-gradient(135deg, #c8f135, #7fff00)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 16,
-              fontWeight: 700,
-              color: "#0a0a0a",
-            }}>✦</div>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: "#f0f0f0", letterSpacing: "-0.3px" }}>RetrAI Po</div>
-              <div style={{ fontSize: 10, color: "#c8f135", textTransform: "uppercase", letterSpacing: 1, fontFamily: "'Space Mono', monospace" }}>
-                {PLUGINS.find(p => p.id === plugin)?.label} · {MODELS.find(m => m.id === model)?.badge}
-              </div>
-            </div>
+        <div style={{ padding: "18px 16px", borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
+            <div style={{ width:32,height:32,borderRadius:"50%",background:"linear-gradient(135deg,#c8f135,#7ecf00)",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:"bold",color:"#0a0a0a",fontSize:14 }}>R</div>
+            <span style={{ color:"#c8f135", fontWeight:600, fontSize:15 }}>RetrAI Po</span>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={clearChat} style={{ width: 34, height: 34, borderRadius: "50%", border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.04)", color: "#888", cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              ↺
-            </button>
-            <button onClick={() => setShowSettings(!showSettings)} style={{ width: 34, height: 34, borderRadius: "50%", border: `1px solid ${showSettings ? "#c8f135" : "rgba(255,255,255,0.1)"}`, background: showSettings ? "rgba(200,241,53,0.1)" : "rgba(255,255,255,0.04)", color: showSettings ? "#c8f135" : "#888", cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              ⚙
-            </button>
+          <button onClick={newChat} style={{
+            width:"100%", padding:"9px 12px", background:"rgba(200,241,53,0.1)",
+            border:"1px solid rgba(200,241,53,0.25)", borderRadius:10, color:"#c8f135",
+            cursor:"pointer", fontSize:13, fontFamily:"'DM Sans',sans-serif", display:"flex",
+            alignItems:"center", gap:6, fontWeight:500
+          }}>
+            ✦ New Chat
+          </button>
+        </div>
+        <div style={{ flex:1, overflow:"auto", padding:"8px 8px" }}>
+          <div style={{ fontSize:11, color:"rgba(255,255,255,0.3)", padding:"8px 8px 4px", textTransform:"uppercase", letterSpacing:"0.08em" }}>History</div>
+          {conversations.map(c => (
+            <div key={c.id} onClick={() => loadConversation(c)} className="sidebar-item" style={{
+              padding:"9px 12px", borderRadius:8, cursor:"pointer",
+              background: c.id === activeConvId ? "rgba(200,241,53,0.1)" : "transparent",
+              color: c.id === activeConvId ? "#c8f135" : "rgba(255,255,255,0.65)",
+              fontSize:13, marginBottom:2, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"
+            }}>
+              💬 {c.title}
+            </div>
+          ))}
+        </div>
+        <div style={{ padding:"12px 8px", borderTop:"1px solid rgba(255,255,255,0.07)" }}>
+          <div style={{ padding:"8px 12px", fontSize:11, color:"rgba(255,255,255,0.3)", textAlign:"center" }}>
+            Powered by Claude API · Free & Unlimited
           </div>
         </div>
+      </div>
 
-        {/* Settings Panel */}
-        {showSettings && (
-          <div style={{ padding: "12px 16px", borderBottom: "1px solid rgba(255,255,255,0.07)", background: "rgba(20,20,20,0.98)", animation: "fadeIn 0.2s ease" }}>
-            <div style={{ fontSize: 11, color: "#666", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8, fontFamily: "'Space Mono', monospace" }}>Model</div>
-            {MODELS.map(m => (
-              <div key={m.id} onClick={() => setModel(m.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", borderRadius: 8, cursor: "pointer", background: model === m.id ? "rgba(200,241,53,0.08)" : "transparent", marginBottom: 2 }}>
-                <span style={{ fontSize: 13, color: model === m.id ? "#c8f135" : "#aaa" }}>{m.label}</span>
-                <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 8, background: "rgba(255,255,255,0.06)", color: "#666" }}>{m.badge}</span>
-              </div>
-            ))}
-            <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 10, background: "rgba(200,241,53,0.05)", border: "1px solid rgba(200,241,53,0.15)" }}>
-              <div style={{ fontSize: 11, color: "#c8f135", marginBottom: 4, fontFamily: "'Space Mono', monospace" }}>ENV VARS NEEDED</div>
-              <div style={{ fontSize: 11, color: "#666", lineHeight: 1.6 }}>
-                GROQ_API_KEY<br />
-                OPENROUTER_API_KEY
+      {/* Main area */}
+      <div style={{ flex:1, display:"flex", flexDirection:"column", height:"100vh" }}>
+
+        {/* Header */}
+        <div style={{
+          padding:"14px 20px", borderBottom:"1px solid rgba(255,255,255,0.07)",
+          display:"flex", alignItems:"center", gap:12, background:"rgba(10,10,10,0.95)",
+          backdropFilter:"blur(10px)", position:"sticky", top:0, zIndex:10
+        }}>
+          <button onClick={() => setSidebarOpen(true)} className="icon-btn" style={{
+            background:"transparent", border:"none", color:"rgba(255,255,255,0.6)",
+            cursor:"pointer", fontSize:20, padding:"4px 8px", borderRadius:8, lineHeight:1
+          }}>☰</button>
+          <div style={{ display:"flex", alignItems:"center", gap:10, flex:1 }}>
+            <div style={{ width:28,height:28,borderRadius:"50%",background:"linear-gradient(135deg,#c8f135,#7ecf00)",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:"bold",color:"#0a0a0a",fontSize:12 }}>R</div>
+            <div>
+              <div style={{ color:"#fff", fontWeight:600, fontSize:15, lineHeight:1 }}>RetrAI Po</div>
+              <div style={{ color:"#c8f135", fontSize:10, display:"flex", alignItems:"center", gap:4 }}>
+                <div style={{ width:6,height:6,borderRadius:"50%",background:"#c8f135",animation:"pulse 2s infinite" }} />
+                Claude · Online
               </div>
             </div>
           </div>
-        )}
+          <button onClick={clearChat} className="icon-btn" style={{
+            background:"transparent", border:"none", color:"rgba(255,255,255,0.4)",
+            cursor:"pointer", fontSize:12, padding:"6px 10px", borderRadius:8, fontFamily:"'DM Sans',sans-serif"
+          }}>Clear</button>
+          <button onClick={newChat} className="icon-btn" style={{
+            background:"rgba(200,241,53,0.1)", border:"1px solid rgba(200,241,53,0.2)", color:"#c8f135",
+            cursor:"pointer", fontSize:12, padding:"6px 12px", borderRadius:8, fontFamily:"'DM Sans',sans-serif"
+          }}>+ New</button>
+        </div>
 
         {/* Messages */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px 8px", display: "flex", flexDirection: "column" }}>
-          {messages.map((msg, i) => <Message key={i} msg={msg} />)}
-          {loading && messages[messages.length - 1]?.role !== "assistant" && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-              <div style={{ width: 30, height: 30, borderRadius: "50%", background: "linear-gradient(135deg, #c8f135, #7fff00)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0 }}>✦</div>
-              <div style={{ padding: "8px 14px", borderRadius: "18px 18px 18px 4px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}>
-                <TypingDots />
+        <div style={{ flex:1, overflow:"auto", padding:"24px 20px" }}>
+          {messages.length === 0 && (
+            <div style={{ textAlign:"center", marginTop:"10vh", animation:"fadeIn 0.5s ease" }}>
+              <div style={{ fontSize:48, marginBottom:12 }}>✦</div>
+              <h1 style={{ color:"#c8f135", fontSize:28, fontWeight:700, marginBottom:8 }}>RetrAI Po</h1>
+              <p style={{ color:"rgba(255,255,255,0.4)", fontSize:15, marginBottom:32 }}>Your free, unlimited AI assistant</p>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:8, justifyContent:"center", maxWidth:500, margin:"0 auto 24px" }}>
+                {["💬 Chat freely", "🖼️ Analyze images", "📄 Read files", "💻 Generate code", "🔢 Solve math", "✍️ Write anything"].map(f => (
+                  <span key={f} className="feature-chip">{f}</span>
+                ))}
+              </div>
+              <div style={{ display:"flex", flexDirection:"column", gap:8, maxWidth:420, margin:"0 auto" }}>
+                {[
+                  "Explain how neural networks work with examples",
+                  "Write a Python script to sort files by type",
+                  "Help me write a cover letter for a tech job"
+                ].map(s => (
+                  <button key={s} onClick={() => { setInput(s); textareaRef.current?.focus(); }} style={{
+                    background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.08)",
+                    borderRadius:10, padding:"10px 14px", color:"rgba(255,255,255,0.6)",
+                    cursor:"pointer", fontSize:13, textAlign:"left", fontFamily:"'DM Sans',sans-serif",
+                    transition:"all 0.2s"
+                  }} className="sidebar-item">
+                    {s}
+                  </button>
+                ))}
               </div>
             </div>
           )}
-          <div ref={bottomRef} />
-        </div>
 
-        {/* Plugin Bar */}
-        <PluginBar active={plugin} onChange={setPlugin} />
-
-        {/* Plugin Input */}
-        <PluginInput plugin={plugin} onSubmit={sendMessage} />
-
-        {/* Input Area */}
-        <div style={{
-          padding: "8px 12px 16px",
-          borderTop: "1px solid rgba(255,255,255,0.07)",
-          background: "rgba(10,10,10,0.98)",
-          backdropFilter: "blur(20px)",
-        }}>
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 8, marginBottom: 8 }}>
-            <div style={{
-              flex: 1,
-              background: "rgba(255,255,255,0.06)",
-              borderRadius: 22,
-              border: "1px solid rgba(255,255,255,0.1)",
-              padding: "10px 14px",
-              display: "flex",
-              alignItems: "flex-end",
-              gap: 8,
-            }}>
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onChange={e => { setInput(e.target.value); adjustTextarea(); }}
-                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-                placeholder="Message..."
-                rows={1}
-                style={{
-                  flex: 1,
-                  background: "transparent",
-                  border: "none",
-                  color: "#e8e8e8",
-                  fontSize: 14,
-                  lineHeight: 1.5,
-                  fontFamily: "'DM Sans', sans-serif",
-                  height: 44,
-                  maxHeight: 120,
-                }}
-              />
+          {messages.map((msg, i) => (
+            <div key={msg.id || i} className="msg-appear">
+              <Message msg={msg} />
             </div>
-            <button
-              onClick={() => sendMessage()}
-              disabled={!input.trim() || loading}
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: "50%",
-                border: "none",
-                
+          ))}
+
+          {loading && (
+            <div style={{ display:"flex", alignItems:"flex-start", gap:10, marginBottom:18 }}>
+              <div style={{ width:34,height:34,borderRadius:"50%"
