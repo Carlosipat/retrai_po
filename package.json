@@ -1,5 +1,5 @@
 {
-  "name": "ai-assistant",
+  "name": "retrai_po",
   "private": true,
   "scripts": {
     "dev": "cd client && npm run dev",
